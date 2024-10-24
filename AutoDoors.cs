@@ -16,10 +16,10 @@ namespace Oxide.Plugins
     {
         #region Fields
 
-        [PluginReference] private Plugin RustTranslationAPI;
+        [PluginReference] private readonly Plugin RustTranslationAPI;
         private const string PERMISSION_USE = "autodoors.use";
-        private readonly Hash<ulong, Timer> doorTimers = new Hash<ulong, Timer>();
-        private readonly Dictionary<string, string> supportedDoors = new Dictionary<string, string>();
+        private readonly Hash<ulong, Timer> doorTimers = new();
+        private readonly Dictionary<string, string> supportedDoors = new();
         private HashSet<DoorManipulator> doorManipulators;
 
         #endregion Fields
@@ -46,7 +46,7 @@ namespace Oxide.Plugins
             UpdateConfig();
             if (configData.globalS.excludeDoorController)
             {
-                doorManipulators = new HashSet<DoorManipulator>();
+                doorManipulators = new();
                 Subscribe(nameof(OnEntitySpawned));
                 foreach (var doorManipulator in BaseNetworkable.serverEntities.OfType<DoorManipulator>())
                 {
@@ -71,8 +71,7 @@ namespace Oxide.Plugins
         {
             if (door == null || door.net == null) return;
             var doorID = door.net.ID.Value;
-            Timer value;
-            if (doorTimers.TryGetValue(doorID, out value))
+            if (doorTimers.TryGetValue(doorID, out Timer value))
             {
                 value?.Destroy();
                 doorTimers.Remove(doorID);
@@ -106,8 +105,7 @@ namespace Oxide.Plugins
             if (!playerData.doorData.enabled) return;
             float autoCloseTime;
             var doorID = door.net.ID.Value;
-            StoredData.DoorData doorData;
-            if (playerData.theDoorS.TryGetValue(doorID, out doorData))
+            if (playerData.theDoorS.TryGetValue(doorID, out StoredData.DoorData doorData))
             {
                 if (!doorData.enabled) return;
                 autoCloseTime = doorData.time;
@@ -122,8 +120,7 @@ namespace Oxide.Plugins
             if (autoCloseTime <= 0) return;
             if (Interface.CallHook("OnDoorAutoClose", player, door) != null) return;
 
-            Timer value;
-            if (doorTimers.TryGetValue(doorID, out value))
+            if (doorTimers.TryGetValue(doorID, out Timer value))
             {
                 value?.Destroy();
             }
@@ -140,8 +137,7 @@ namespace Oxide.Plugins
         private void OnDoorClosed(Door door, BasePlayer player)
         {
             if (door == null || door.net == null || door.IsOpen()) return;
-            Timer value;
-            if (doorTimers.TryGetValue(door.net.ID.Value, out value))
+            if (doorTimers.TryGetValue(door.net.ID.Value, out Timer value))
             {
                 value?.Destroy();
                 doorTimers.Remove(door.net.ID.Value);
@@ -166,12 +162,11 @@ namespace Oxide.Plugins
 
         private StoredData.PlayerData GetPlayerData(ulong playerID, bool readOnly = false)
         {
-            StoredData.PlayerData playerData;
-            if (!storedData.playerData.TryGetValue(playerID, out playerData))
+            if (!storedData.playerData.TryGetValue(playerID, out StoredData.PlayerData playerData))
             {
-                playerData = new StoredData.PlayerData
+                playerData = new()
                 {
-                    doorData = new StoredData.DoorData
+                    doorData = new()
                     {
                         enabled = configData.globalS.defaultEnabled,
                         time = configData.globalS.defaultDelay,
@@ -189,8 +184,7 @@ namespace Oxide.Plugins
 
         private static Door GetLookingAtDoor(BasePlayer player)
         {
-            RaycastHit rHit;
-            if (Physics.Raycast(player.eyes.HeadRay(), out rHit, 10f, Rust.Layers.Mask.Construction))
+            if (Physics.Raycast(player.eyes.HeadRay(), out RaycastHit rHit, 10f, Rust.Layers.Mask.Construction))
             {
                 return rHit.GetEntity() as Door;
             }
@@ -205,10 +199,9 @@ namespace Oxide.Plugins
                 if (itemModDeployable == null) continue;
                 var door = GameManager.server.FindPrefab(itemModDeployable.entityPrefab.resourcePath)?.GetComponent<Door>();
                 if (door == null || string.IsNullOrEmpty(door.ShortPrefabName)) continue;
-                ConfigData.DoorSettings doorSettings;
-                if (!configData.doorS.TryGetValue(itemDefinition.shortname, out doorSettings))
+                if (!configData.doorS.TryGetValue(itemDefinition.shortname, out ConfigData.DoorSettings doorSettings))
                 {
-                    doorSettings = new ConfigData.DoorSettings
+                    doorSettings = new()
                     {
                         enabled = true,
                         displayName = itemDefinition.displayName.english
@@ -260,8 +253,7 @@ namespace Oxide.Plugins
                 Print(player, Lang("AutoDoor", player.UserIDString, playerData.doorData.enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
                 return;
             }
-            float time;
-            if (float.TryParse(args[0], out time))
+            if (float.TryParse(args[0], out float time))
             {
                 if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                 {
@@ -310,17 +302,15 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        string doorDisplayName;
-                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorDisplayName))
+                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out string doorDisplayName))
                         {
                             Print(player, Lang("DoorNotSupported", player.UserIDString));
                             return;
                         }
 
-                        StoredData.DoorData doorData;
-                        if (!playerData.theDoorS.TryGetValue(door.net.ID.Value, out doorData))
+                        if (!playerData.theDoorS.TryGetValue(door.net.ID.Value, out StoredData.DoorData doorData))
                         {
-                            doorData = new StoredData.DoorData
+                            doorData = new()
                             { enabled = true, time = configData.globalS.defaultDelay };
                             playerData.theDoorS.Add(door.net.ID.Value, doorData);
                         }
@@ -366,17 +356,15 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        string doorDisplayName;
-                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorDisplayName))
+                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out string doorDisplayName))
                         {
                             Print(player, Lang("DoorNotSupported", player.UserIDString));
                             return;
                         }
 
-                        StoredData.DoorData doorData;
-                        if (!playerData.doorTypeS.TryGetValue(door.ShortPrefabName, out doorData))
+                        if (!playerData.doorTypeS.TryGetValue(door.ShortPrefabName, out StoredData.DoorData doorData))
                         {
-                            doorData = new StoredData.DoorData
+                            doorData = new()
                             { enabled = true, time = configData.globalS.defaultDelay };
                             playerData.doorTypeS.Add(door.ShortPrefabName, doorData);
                         }
@@ -430,7 +418,7 @@ namespace Oxide.Plugins
                             configData.globalS.minimumDelay, configData.globalS.maximumDelay));
                         Print(player, stringBuilder.ToString());
                         stringBuilder.Clear();
-                        Pool.Free(ref stringBuilder);
+                        Pool.FreeUnmanaged(ref stringBuilder);
                         return;
                     }
             }
@@ -452,13 +440,13 @@ namespace Oxide.Plugins
             public bool clearDataOnWipe = false;
 
             [JsonProperty(PropertyName = "Global settings")]
-            public GlobalSettings globalS = new GlobalSettings();
+            public GlobalSettings globalS = new();
 
             [JsonProperty(PropertyName = "Chat settings")]
-            public ChatSettings chatS = new ChatSettings();
+            public ChatSettings chatS = new();
 
             [JsonProperty(PropertyName = "Door Settings")]
-            public Dictionary<string, DoorSettings> doorS = new Dictionary<string, DoorSettings>();
+            public Dictionary<string, DoorSettings> doorS = new();
 
             public class DoorSettings
             {
@@ -532,8 +520,10 @@ namespace Oxide.Plugins
         protected override void LoadDefaultConfig()
         {
             PrintWarning("Creating a new configuration file");
-            configData = new ConfigData();
-            configData.version = Version;
+            configData = new()
+            {
+                version = Version
+            };
         }
 
         protected override void SaveConfig() => Config.WriteObject(configData);
@@ -544,8 +534,7 @@ namespace Oxide.Plugins
             {
                 if (configData.version <= default(VersionNumber))
                 {
-                    string prefix, prefixColor;
-                    if (GetConfigValue(out prefix, "Chat Settings", "Chat Prefix") && GetConfigValue(out prefixColor, "Chat Settings", "Chat Prefix Color"))
+                    if (GetConfigValue(out string prefix, "Chat Settings", "Chat Prefix") && GetConfigValue(out string prefixColor, "Chat Settings", "Chat Prefix Color"))
                     {
                         configData.chatS.prefix = $"<color={prefixColor}>{prefix}</color>: ";
                     }
@@ -574,13 +563,13 @@ namespace Oxide.Plugins
 
         private class StoredData
         {
-            public readonly Dictionary<ulong, PlayerData> playerData = new Dictionary<ulong, PlayerData>();
+            public readonly Dictionary<ulong, PlayerData> playerData = new();
 
             public class PlayerData
             {
-                public DoorData doorData = new DoorData();
-                public readonly Dictionary<ulong, DoorData> theDoorS = new Dictionary<ulong, DoorData>();
-                public readonly Dictionary<string, DoorData> doorTypeS = new Dictionary<string, DoorData>();
+                public DoorData doorData = new();
+                public readonly Dictionary<ulong, DoorData> theDoorS = new();
+                public readonly Dictionary<string, DoorData> doorTypeS = new();
             }
 
             public class DoorData
@@ -613,7 +602,7 @@ namespace Oxide.Plugins
 
         private void ClearData()
         {
-            storedData = new StoredData();
+            storedData = new();
             SaveData();
         }
 
@@ -646,7 +635,7 @@ namespace Oxide.Plugins
 
         protected override void LoadDefaultMessages()
         {
-            lang.RegisterMessages(new Dictionary<string, string>
+            lang.RegisterMessages(new()
             {
                 ["NotAllowed"] = "You do not have permission to use this command",
                 ["Enabled"] = "<color=#8ee700>Enabled</color>",
@@ -671,7 +660,7 @@ namespace Oxide.Plugins
                 ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> [time (seconds)]</color> - Set automatic closing delay for the type of door you are looking at, the allowed time is between {1}s and {2}s. ('type' is just a word, not the type of door)",
                 ["AutoDoorSyntax6"] = "<color=#ce422b>/{0} <all | a> [time (seconds)]</color> - Set automatic closing delay for all doors, the allowed time is between {1}s and {2}s.",
             }, this);
-            lang.RegisterMessages(new Dictionary<string, string>
+            lang.RegisterMessages(new()
             {
                 ["NotAllowed"] = "您没有权限使用该命令",
                 ["Enabled"] = "<color=#8ee700>已启用</color>",
