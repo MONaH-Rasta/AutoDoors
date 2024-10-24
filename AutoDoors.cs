@@ -35,7 +35,7 @@ namespace Oxide.Plugins
             {
                 configData.chatS.commands = new[] { "ad" };
             }
-            foreach (var command in configData.chatS.commands)
+            foreach (string command in configData.chatS.commands)
             {
                 cmd.AddChatCommand(command, this, nameof(CmdAutoDoor));
             }
@@ -48,7 +48,7 @@ namespace Oxide.Plugins
             {
                 doorManipulators = new();
                 Subscribe(nameof(OnEntitySpawned));
-                foreach (var doorManipulator in BaseNetworkable.serverEntities.OfType<DoorManipulator>())
+                foreach (DoorManipulator doorManipulator in BaseNetworkable.serverEntities.OfType<DoorManipulator>())
                 {
                     OnEntitySpawned(doorManipulator);
                 }
@@ -70,13 +70,13 @@ namespace Oxide.Plugins
         private void OnEntityKill(Door door)
         {
             if (door == null || door.net == null) return;
-            var doorID = door.net.ID.Value;
+            ulong doorID = door.net.ID.Value;
             if (doorTimers.TryGetValue(doorID, out Timer value))
             {
                 value?.Destroy();
                 doorTimers.Remove(doorID);
             }
-            foreach (var playerData in storedData.playerData.Values)
+            foreach (StoredData.PlayerData playerData in storedData.playerData.Values)
             {
                 playerData.theDoorS.Remove(doorID);
             }
@@ -86,7 +86,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            foreach (var value in doorTimers.Values)
+            foreach (Timer value in doorTimers.Values)
             {
                 value?.Destroy();
             }
@@ -101,10 +101,10 @@ namespace Oxide.Plugins
             if (configData.globalS.excludeDoorController && HasDoorController(door)) return;
             if (configData.usePermission && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE)) return;
 
-            var playerData = GetPlayerData(player.userID, true);
+            StoredData.PlayerData playerData = GetPlayerData(player.userID, true);
             if (!playerData.doorData.enabled) return;
             float autoCloseTime;
-            var doorID = door.net.ID.Value;
+            ulong doorID = door.net.ID.Value;
             if (playerData.theDoorS.TryGetValue(doorID, out StoredData.DoorData doorData))
             {
                 if (!doorData.enabled) return;
@@ -150,7 +150,7 @@ namespace Oxide.Plugins
 
         private bool HasDoorController(Door door)
         {
-            foreach (var doorManipulator in doorManipulators)
+            foreach (DoorManipulator doorManipulator in doorManipulators)
             {
                 if (doorManipulator != null && doorManipulator.targetDoor == door)
                 {
@@ -193,11 +193,11 @@ namespace Oxide.Plugins
 
         private void UpdateConfig()
         {
-            foreach (var itemDefinition in ItemManager.GetItemDefinitions())
+            foreach (ItemDefinition itemDefinition in ItemManager.GetItemDefinitions())
             {
-                var itemModDeployable = itemDefinition.GetComponent<ItemModDeployable>();
+                ItemModDeployable itemModDeployable = itemDefinition.GetComponent<ItemModDeployable>();
                 if (itemModDeployable == null) continue;
-                var door = GameManager.server.FindPrefab(itemModDeployable.entityPrefab.resourcePath)?.GetComponent<Door>();
+                Door door = GameManager.server.FindPrefab(itemModDeployable.entityPrefab.resourcePath)?.GetComponent<Door>();
                 if (door == null || string.IsNullOrEmpty(door.ShortPrefabName)) continue;
                 if (!configData.doorS.TryGetValue(itemDefinition.shortname, out ConfigData.DoorSettings doorSettings))
                 {
@@ -246,7 +246,7 @@ namespace Oxide.Plugins
                 Print(player, Lang("NotAllowed", player.UserIDString));
                 return;
             }
-            var playerData = GetPlayerData(player.userID);
+            StoredData.PlayerData playerData = GetPlayerData(player.userID);
             if (args == null || args.Length == 0)
             {
                 playerData.doorData.enabled = !playerData.doorData.enabled;
@@ -295,7 +295,7 @@ namespace Oxide.Plugins
                 case "s":
                 case "single":
                     {
-                        var door = GetLookingAtDoor(player);
+                        Door door = GetLookingAtDoor(player);
                         if (door == null || door.net == null)
                         {
                             Print(player, Lang("DoorNotFound", player.UserIDString));
@@ -349,7 +349,7 @@ namespace Oxide.Plugins
                 case "t":
                 case "type":
                     {
-                        var door = GetLookingAtDoor(player);
+                        Door door = GetLookingAtDoor(player);
                         if (door == null || door.net == null)
                         {
                             Print(player, Lang("DoorNotFound", player.UserIDString));
@@ -404,7 +404,7 @@ namespace Oxide.Plugins
                     {
                         StringBuilder stringBuilder = Pool.Get<StringBuilder>();
                         stringBuilder.AppendLine();
-                        var firstCmd = configData.chatS.commands[0];
+                        string firstCmd = configData.chatS.commands[0];
                         stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, firstCmd));
                         stringBuilder.AppendLine(Lang("AutoDoorSyntax1", player.UserIDString, firstCmd,
                             configData.globalS.minimumDelay, configData.globalS.maximumDelay));
@@ -545,7 +545,7 @@ namespace Oxide.Plugins
 
         private bool GetConfigValue<T>(out T value, params string[] path)
         {
-            var configValue = Config.Get(path);
+            object configValue = Config.Get(path);
             if (configValue == null)
             {
                 value = default(T);
@@ -614,7 +614,7 @@ namespace Oxide.Plugins
             }
             else
             {
-                foreach (var value in storedData.playerData.Values)
+                foreach (StoredData.PlayerData value in storedData.playerData.Values)
                 {
                     value.theDoorS.Clear();
                 }
