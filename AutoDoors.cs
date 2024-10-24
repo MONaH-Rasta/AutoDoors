@@ -1,18 +1,22 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Facepunch;
 using Newtonsoft.Json;
 using Oxide.Core;
+using Oxide.Core.Plugins;
 using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.8", ResourceId = 1924)]
+    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.9", ResourceId = 1924)]
     [Description("Automatically closes doors behind players after X seconds")]
     public class AutoDoors : RustPlugin
     {
         #region Fields
 
+        [PluginReference] private Plugin RustTranslationAPI;
         private const string PERMISSION_USE = "autodoors.use";
         private readonly Hash<uint, Timer> doorTimers = new Hash<uint, Timer>();
         private readonly Dictionary<string, string> supportedDoors = new Dictionary<string, string>();
@@ -99,7 +103,7 @@ namespace Oxide.Plugins
             if (configData.usePermission && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE)) return;
 
             var playerData = GetPlayerData(player.userID, true);
-            if (!playerData.doorS.enabled) return;
+            if (!playerData.doorData.enabled) return;
             float autoCloseTime;
             var doorID = door.net.ID;
             StoredData.DoorData doorData;
@@ -113,7 +117,7 @@ namespace Oxide.Plugins
                 if (!doorData.enabled) return;
                 autoCloseTime = doorData.time;
             }
-            else autoCloseTime = playerData.doorS.time;
+            else autoCloseTime = playerData.doorData.time;
 
             if (autoCloseTime <= 0) return;
             if (Interface.CallHook("OnDoorAutoClose", player, door) != null) return;
@@ -167,7 +171,7 @@ namespace Oxide.Plugins
             {
                 playerData = new StoredData.PlayerData
                 {
-                    doorS = new StoredData.DoorData
+                    doorData = new StoredData.DoorData
                     {
                         enabled = configData.globalS.defaultEnabled,
                         time = configData.globalS.defaultDelay,
@@ -219,6 +223,25 @@ namespace Oxide.Plugins
             SaveConfig();
         }
 
+        #region RustTranslationAPI
+
+        private string GetDeployableTranslation(string language, string deployable) => (string)RustTranslationAPI.Call("GetDeployableTranslation", language, deployable);
+
+        private string GetDeployableDisplayName(BasePlayer player, string deployable, string displayName)
+        {
+            if (RustTranslationAPI != null)
+            {
+                displayName = GetDeployableTranslation(lang.GetLanguage(player.UserIDString), deployable);
+                if (!string.IsNullOrEmpty(displayName))
+                {
+                    return displayName;
+                }
+            }
+            return displayName;
+        }
+
+        #endregion RustTranslationAPI
+
         #endregion Methods
 
         #region ChatCommand
@@ -233,8 +256,8 @@ namespace Oxide.Plugins
             var playerData = GetPlayerData(player.userID);
             if (args == null || args.Length == 0)
             {
-                playerData.doorS.enabled = !playerData.doorS.enabled;
-                Print(player, Lang("AutoDoor", player.UserIDString, playerData.doorS.enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
+                playerData.doorData.enabled = !playerData.doorData.enabled;
+                Print(player, Lang("AutoDoor", player.UserIDString, playerData.doorData.enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
                 return;
             }
             float time;
@@ -242,8 +265,8 @@ namespace Oxide.Plugins
             {
                 if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                 {
-                    playerData.doorS.time = time;
-                    if (!playerData.doorS.enabled) playerData.doorS.enabled = true;
+                    playerData.doorData.time = time;
+                    if (!playerData.doorData.enabled) playerData.doorData.enabled = true;
                     Print(player, Lang("AutoDoorDelay", player.UserIDString, time));
                     return;
                 }
@@ -261,7 +284,7 @@ namespace Oxide.Plugins
                             {
                                 if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                                 {
-                                    playerData.doorS.time = time;
+                                    playerData.doorData.time = time;
                                     playerData.doorTypeS.Clear();
                                     playerData.theDoorS.Clear();
                                     Print(player, Lang("AutoDoorDelayAll", player.UserIDString, time));
@@ -287,8 +310,8 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        string doorName;
-                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorName))
+                        string doorDisplayName;
+                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorDisplayName))
                         {
                             Print(player, Lang("DoorNotSupported", player.UserIDString));
                             return;
@@ -306,7 +329,8 @@ namespace Oxide.Plugins
                         {
                             doorData.enabled = !doorData.enabled;
                             Print(player,
-                                Lang("AutoDoorSingle", player.UserIDString, doorName,
+                                Lang("AutoDoorSingle", player.UserIDString,
+                                    GetDeployableDisplayName(player, door.ShortPrefabName, doorDisplayName),
                                     doorData.enabled
                                         ? Lang("Enabled", player.UserIDString)
                                         : Lang("Disabled", player.UserIDString)));
@@ -318,7 +342,8 @@ namespace Oxide.Plugins
                             if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                             {
                                 doorData.time = time;
-                                Print(player, Lang("AutoDoorSingleDelay", player.UserIDString, doorName, time));
+                                Print(player, Lang("AutoDoorSingleDelay", player.UserIDString,
+                                    GetDeployableDisplayName(player, door.ShortPrefabName, doorDisplayName), time));
                                 return;
                             }
 
@@ -341,8 +366,8 @@ namespace Oxide.Plugins
                             return;
                         }
 
-                        string doorName;
-                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorName))
+                        string doorDisplayName;
+                        if (!supportedDoors.TryGetValue(door.ShortPrefabName, out doorDisplayName))
                         {
                             Print(player, Lang("DoorNotSupported", player.UserIDString));
                             return;
@@ -360,7 +385,7 @@ namespace Oxide.Plugins
                         {
                             doorData.enabled = !doorData.enabled;
                             Print(player,
-                                Lang("AutoDoorType", player.UserIDString, doorName,
+                                Lang("AutoDoorType", player.UserIDString, GetDeployableDisplayName(player, door.ShortPrefabName, doorDisplayName),
                                     doorData.enabled
                                         ? Lang("Enabled", player.UserIDString)
                                         : Lang("Disabled", player.UserIDString)));
@@ -372,7 +397,8 @@ namespace Oxide.Plugins
                             if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                             {
                                 doorData.time = time;
-                                Print(player, Lang("AutoDoorTypeDelay", player.UserIDString, doorName, time));
+                                Print(player, Lang("AutoDoorTypeDelay", player.UserIDString,
+                                    GetDeployableDisplayName(player, door.ShortPrefabName, doorDisplayName), time));
                                 return;
                             }
 
@@ -388,7 +414,7 @@ namespace Oxide.Plugins
                 case "h":
                 case "help":
                     {
-                        StringBuilder stringBuilder = new StringBuilder();
+                        StringBuilder stringBuilder = Pool.Get<StringBuilder>();
                         stringBuilder.AppendLine();
                         var firstCmd = configData.chatS.commands[0];
                         stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, firstCmd));
@@ -403,6 +429,8 @@ namespace Oxide.Plugins
                         stringBuilder.AppendLine(Lang("AutoDoorSyntax6", player.UserIDString, firstCmd,
                             configData.globalS.minimumDelay, configData.globalS.maximumDelay));
                         Print(player, stringBuilder.ToString());
+                        stringBuilder.Clear();
+                        Pool.Free(ref stringBuilder);
                         return;
                     }
             }
@@ -475,7 +503,7 @@ namespace Oxide.Plugins
             }
 
             [JsonProperty(PropertyName = "Version")]
-            public VersionNumber version = new VersionNumber(3, 2, 6);
+            public VersionNumber version;
         }
 
         protected override void LoadConfig()
@@ -493,9 +521,9 @@ namespace Oxide.Plugins
                     UpdateConfigValues();
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                PrintError("The configuration file is corrupted");
+                PrintError($"The configuration file is corrupted. \n{ex}");
                 LoadDefaultConfig();
             }
             SaveConfig();
@@ -505,6 +533,7 @@ namespace Oxide.Plugins
         {
             PrintWarning("Creating a new configuration file");
             configData = new ConfigData();
+            configData.version = Version;
         }
 
         protected override void SaveConfig() => Config.WriteObject(configData);
@@ -513,15 +542,28 @@ namespace Oxide.Plugins
         {
             if (configData.version < Version)
             {
-                if (configData.version <= new VersionNumber(3, 2, 6))
+                if (configData.version <= default(VersionNumber))
                 {
-                    if (configData.chatS.prefix == "[AutoDoors]: ")
+                    string prefix, prefixColor;
+                    if (GetConfigValue(out prefix, "Chat Settings", "Chat Prefix") && GetConfigValue(out prefixColor, "Chat Settings", "Chat Prefix Color"))
                     {
-                        configData.chatS.prefix = "<color=#00FFFF>[AutoDoors]</color>: ";
+                        configData.chatS.prefix = $"<color={prefixColor}>{prefix}</color>: ";
                     }
                 }
                 configData.version = Version;
             }
+        }
+
+        private bool GetConfigValue<T>(out T value, params string[] path)
+        {
+            var configValue = Config.Get(path);
+            if (configValue == null)
+            {
+                value = default(T);
+                return false;
+            }
+            value = Config.ConvertValue<T>(configValue);
+            return true;
         }
 
         #endregion ConfigurationFile
@@ -536,7 +578,7 @@ namespace Oxide.Plugins
 
             public class PlayerData
             {
-                public DoorData doorS = new DoorData();
+                public DoorData doorData = new DoorData();
                 public readonly Dictionary<uint, DoorData> theDoorS = new Dictionary<uint, DoorData>();
                 public readonly Dictionary<string, DoorData> doorTypeS = new Dictionary<string, DoorData>();
             }
@@ -615,10 +657,10 @@ namespace Oxide.Plugins
                 ["DoorNotFound"] = "You need to look at a door",
                 ["DoorNotSupported"] = "This type of door is not supported",
                 ["AutoDoorDelayLimit"] = "Automatic door closing delay allowed is between {0}s and {1}s",
-                ["AutoDoorSingle"] = "Automatic closing of this {0} is {1}",
-                ["AutoDoorSingleDelay"] = "Automatic closing delay of this {0} is {1}s",
-                ["AutoDoorType"] = "Automatic closing of {0} door is {1}",
-                ["AutoDoorTypeDelay"] = "Automatic closing delay of {0} door is {1}s",
+                ["AutoDoorSingle"] = "Automatic closing of this <color=#4DFF4D>{0}</color> is {1}",
+                ["AutoDoorSingleDelay"] = "Automatic closing delay of this <color=#4DFF4D>{0}</color> is {1}s",
+                ["AutoDoorType"] = "Automatic closing of <color=#4DFF4D>{0}</color> door is {1}",
+                ["AutoDoorTypeDelay"] = "Automatic closing delay of <color=#4DFF4D>{0}</color> door is {1}s",
                 ["SyntaxError"] = "Syntax error, type '<color=#ce422b>/{0} <help | h></color>' to view help",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - Enable/Disable automatic door closing",
@@ -640,10 +682,10 @@ namespace Oxide.Plugins
                 ["DoorNotFound"] = "请您看着一条门再输入指令",
                 ["DoorNotSupported"] = "不支持您看着的这种门",
                 ["AutoDoorDelayLimit"] = "自动关门延迟应该在 {0}秒 和 {1}秒 之间",
-                ["AutoDoorSingle"] = "这条 {0} 的自动关闭状态为 {1}",
-                ["AutoDoorSingleDelay"] = "这条 {0} 的自动关闭延迟为 {1}秒",
-                ["AutoDoorType"] = "这种 {0} 的自动关闭状态为 {1}",
-                ["AutoDoorTypeDelay"] = "这种 {0} 的自动关闭延迟为 {1}秒",
+                ["AutoDoorSingle"] = "这条 <color=#4DFF4D>{0}</color> 的自动关闭状态为 {1}",
+                ["AutoDoorSingleDelay"] = "这条 <color=#4DFF4D>{0}</color> 的自动关闭延迟为 {1}秒",
+                ["AutoDoorType"] = "这种 <color=#4DFF4D>{0}</color> 的自动关闭状态为 {1}",
+                ["AutoDoorTypeDelay"] = "这种 <color=#4DFF4D>{0}</color> 的自动关闭延迟为 {1}秒",
                 ["SyntaxError"] = "语法错误, 输入 '<color=#ce422b>/{0} <help | h></color>' 查看帮助",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - 启用/禁用自动关门",
