@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.0", ResourceId = 1924)]
+    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.1", ResourceId = 1924)]
     [Description("Automatically closes doors behind players after X seconds")]
     public class AutoDoors : RustPlugin
     {
@@ -158,27 +158,24 @@ namespace Oxide.Plugins
                 else Print(player, Lang("AutoDoor", player.UserIDString, Lang("Disabled", player.UserIDString)));
                 return;
             }
+            float time = 0;
+            if (float.TryParse(args[0], out time))
+            {
+                if (time <= configData.globalSettings.maximumDelay && time >= configData.globalSettings.minimumDelay)
+                {
+                    storedData.playerData[player.userID].time = time;
+                    foreach (var key in storedData.playerData[player.userID].doorTypeSettings.Keys)
+                        storedData.playerData[player.userID].doorTypeSettings[key].time = time;
+                    foreach (var key in storedData.playerData[player.userID].theDoorSettings.Keys)
+                        storedData.playerData[player.userID].theDoorSettings[key].time = time;
+                    if (!storedData.playerData[player.userID].enabled) storedData.playerData[player.userID].enabled = true;
+                    Print(player, Lang("AutoDoorDelay", player.UserIDString, time));
+                }
+                else Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
+                return;
+            }
             switch (args[0].ToLower())
             {
-                case "a":
-                case "all":
-                    float time = 0;
-                    if (args.Length >= 2 && float.TryParse(args[1], out time))
-                    {
-                        if (time <= configData.globalSettings.maximumDelay && time >= configData.globalSettings.minimumDelay)
-                        {
-                            storedData.playerData[player.userID].time = time;
-                            foreach (var key in storedData.playerData[player.userID].doorTypeSettings.Keys)
-                                storedData.playerData[player.userID].doorTypeSettings[key].time = time;
-                            foreach (var key in storedData.playerData[player.userID].theDoorSettings.Keys)
-                                storedData.playerData[player.userID].theDoorSettings[key].time = time;
-                            Print(player, Lang("AutoDoorDelay", player.UserIDString, time));
-                        }
-                        else Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
-                        return;
-                    }
-                    break;
-
                 case "s":
                 case "single":
                     var door = GetLookingDoor(player);
@@ -419,11 +416,11 @@ namespace Oxide.Plugins
                 ["SyntaxError"] = "Syntax error, please enter '<color=#ce422b>/{0} <help | h></color>' to view help",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - Enable/Disable automatic door closing",
-                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <all | a> <time (seconds)></color> - Set automatic closing delay for all doors, (The time is between {1} and {2})",
+                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <time (seconds)></color> - Set automatic closing delay for all doors, (The time is between {1} and {2})",
                 ["AutoDoorSyntax2"] = "<color=#ce422b>/{0} <single | s></color> - Enable/Disable automatic closing of the door you are looking at",
                 ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <time (seconds)></color> - Set automatic closing delay for the door you are looking at, (The time is between {1} and {2})",
-                ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - Enable/disable automatic door closing for the type of door you are looking at",
-                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <time (seconds)></color> - Set automatic closing delay for the type of door you are looking at, (The time is between {1} and {2})",
+                ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - Enable/disable automatic door closing for the type of door you are looking at.'type' is just a word, not the type of door",
+                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <time (seconds)></color> - Set automatic closing delay for the type of door you are looking at, (The time is between {1} and {2}).'type' is just a word, not the type of door",
             }, this);
             lang.RegisterMessages(new Dictionary<string, string>
             {
@@ -441,7 +438,7 @@ namespace Oxide.Plugins
                 ["SyntaxError"] = "语法错误, 输入 '<color=#ce422b>/{0} <help | h></color>' 查看帮助",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - 启用/禁用自动关门",
-                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <all | a> <时间 (秒)></color> - 为所有门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
+                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <时间 (秒)></color> - 为所有门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
                 ["AutoDoorSyntax2"] = "<color=#ce422b>/{0} <single | s></color> - 为您看着的这个门，启用/禁用自动关门",
                 ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <时间 (秒)></color> - 为您看着的这个门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
                 ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - 为您看着的这种门，启用/禁用自动关门",
