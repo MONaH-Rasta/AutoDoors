@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.2", ResourceId = 1924)]
+    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.3", ResourceId = 1924)]
     [Description("Automatically closes doors behind players after X seconds")]
     public class AutoDoors : RustPlugin
     {
@@ -21,7 +21,8 @@ namespace Oxide.Plugins
             LoadData();
             Unsubscribe(nameof(OnEntitySpawned));
             permission.RegisterPermission(PERMISSION_USE, this);
-            cmd.AddChatCommand(configData.chatS.command, this, nameof(CmdAutoDoor));
+            foreach (var command in configData.chatS.commands)
+                cmd.AddChatCommand(command, this, nameof(CmdAutoDoor));
         }
 
         private void OnServerInitialized()
@@ -293,17 +294,17 @@ namespace Oxide.Plugins
                 case "help":
                     StringBuilder stringBuilder = new StringBuilder();
                     stringBuilder.AppendLine();
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, configData.chatS.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax1", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax2", player.UserIDString, configData.chatS.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax3", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax4", player.UserIDString, configData.chatS.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax5", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax6", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, configData.chatS.commands[0]));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax1", player.UserIDString, configData.chatS.commands[0], configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax2", player.UserIDString, configData.chatS.commands[0]));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax3", player.UserIDString, configData.chatS.commands[0], configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax4", player.UserIDString, configData.chatS.commands[0]));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax5", player.UserIDString, configData.chatS.commands[0], configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax6", player.UserIDString, configData.chatS.commands[0], configData.globalS.minimumDelay, configData.globalS.maximumDelay));
                     Print(player, stringBuilder.ToString());
                     return;
             }
-            Print(player, Lang("SyntaxError", player.UserIDString, configData.chatS.command));
+            Print(player, Lang("SyntaxError", player.UserIDString, configData.chatS.commands[0]));
         }
 
         #endregion ChatCommand
@@ -353,7 +354,7 @@ namespace Oxide.Plugins
             public class ChatSettings
             {
                 [JsonProperty(PropertyName = "Chat command")]
-                public string command = "autodoor";
+                public string[] commands = new string[] { "ad", "autodoor" };
 
                 [JsonProperty(PropertyName = "Chat prefix")]
                 public string prefix = "[AutoDoors]: ";
