@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.9", ResourceId = 1924)]
+    [Info("Auto Doors", "Wulf/lukespragg/Arainrr/James/Bushhy", "3.3.10", ResourceId = 1924)]
     [Description("Automatically closes doors behind players after X seconds")]
     public class AutoDoors : RustPlugin
     {
@@ -18,7 +18,7 @@ namespace Oxide.Plugins
 
         [PluginReference] private Plugin RustTranslationAPI;
         private const string PERMISSION_USE = "autodoors.use";
-        private readonly Hash<uint, Timer> doorTimers = new Hash<uint, Timer>();
+        private readonly Hash<ulong, Timer> doorTimers = new Hash<ulong, Timer>();
         private readonly Dictionary<string, string> supportedDoors = new Dictionary<string, string>();
         private HashSet<DoorManipulator> doorManipulators;
 
@@ -70,7 +70,7 @@ namespace Oxide.Plugins
         private void OnEntityKill(Door door)
         {
             if (door == null || door.net == null) return;
-            var doorID = door.net.ID;
+            var doorID = door.net.ID.Value;
             Timer value;
             if (doorTimers.TryGetValue(doorID, out value))
             {
@@ -105,7 +105,7 @@ namespace Oxide.Plugins
             var playerData = GetPlayerData(player.userID, true);
             if (!playerData.doorData.enabled) return;
             float autoCloseTime;
-            var doorID = door.net.ID;
+            var doorID = door.net.ID.Value;
             StoredData.DoorData doorData;
             if (playerData.theDoorS.TryGetValue(doorID, out doorData))
             {
@@ -141,10 +141,10 @@ namespace Oxide.Plugins
         {
             if (door == null || door.net == null || door.IsOpen()) return;
             Timer value;
-            if (doorTimers.TryGetValue(door.net.ID, out value))
+            if (doorTimers.TryGetValue(door.net.ID.Value, out value))
             {
                 value?.Destroy();
-                doorTimers.Remove(door.net.ID);
+                doorTimers.Remove(door.net.ID.Value);
             }
         }
 
@@ -318,11 +318,11 @@ namespace Oxide.Plugins
                         }
 
                         StoredData.DoorData doorData;
-                        if (!playerData.theDoorS.TryGetValue(door.net.ID, out doorData))
+                        if (!playerData.theDoorS.TryGetValue(door.net.ID.Value, out doorData))
                         {
                             doorData = new StoredData.DoorData
                             { enabled = true, time = configData.globalS.defaultDelay };
-                            playerData.theDoorS.Add(door.net.ID, doorData);
+                            playerData.theDoorS.Add(door.net.ID.Value, doorData);
                         }
 
                         if (args.Length <= 1)
@@ -579,7 +579,7 @@ namespace Oxide.Plugins
             public class PlayerData
             {
                 public DoorData doorData = new DoorData();
-                public readonly Dictionary<uint, DoorData> theDoorS = new Dictionary<uint, DoorData>();
+                public readonly Dictionary<ulong, DoorData> theDoorS = new Dictionary<ulong, DoorData>();
                 public readonly Dictionary<string, DoorData> doorTypeS = new Dictionary<string, DoorData>();
             }
 
