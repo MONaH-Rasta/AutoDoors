@@ -150,4 +150,5 @@ private object OnDoorAutoClose(BasePlayer player, Door door)
 
 - **Bombardir**, for the original version of this plugin
 - **Wulf**, for the previous re-write of this plugin
-- **Arainrr **: Previous maintainer
+- **Arainrr**: Previous maintainer
+- **James**: Helping test plugin update before force wipe
