@@ -7,28 +7,32 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.1", ResourceId = 1924)]
+    [Info("Auto Doors", "Wulf/lukespragg/Arainrr", "3.2.2", ResourceId = 1924)]
     [Description("Automatically closes doors behind players after X seconds")]
     public class AutoDoors : RustPlugin
     {
-        private bool initialized = false;
         private const string PERMISSION_USE = "autodoors.use";
+        private Hash<uint, Timer> doorTimer = new Hash<uint, Timer>();
         private Dictionary<string, string> deployedToName = new Dictionary<string, string>();
         private HashSet<DoorManipulator> doorManipulators = new HashSet<DoorManipulator>();
 
         private void Init()
         {
             LoadData();
+            Unsubscribe(nameof(OnEntitySpawned));
             permission.RegisterPermission(PERMISSION_USE, this);
-            cmd.AddChatCommand(configData.chatSettings.command, this, nameof(CmdAutoDoor));
+            cmd.AddChatCommand(configData.chatS.command, this, nameof(CmdAutoDoor));
         }
 
         private void OnServerInitialized()
         {
             UpdateConfig();
-            initialized = true;
-            foreach (var doorManipulator in BaseNetworkable.serverEntities.OfType<DoorManipulator>())
-                OnEntitySpawned(doorManipulator);
+            if (configData.globalS.excludeDoorController)
+            {
+                Subscribe(nameof(OnEntitySpawned));
+                foreach (var doorManipulator in BaseNetworkable.serverEntities.OfType<DoorManipulator>())
+                    OnEntitySpawned(doorManipulator);
+            }
         }
 
         private void UpdateConfig()
@@ -51,46 +55,61 @@ namespace Oxide.Plugins
 
         private void OnEntitySpawned(DoorManipulator doorManipulator)
         {
-            if (!initialized || doorManipulator == null || doorManipulator.OwnerID == 0) return;
+            if (doorManipulator == null || doorManipulator.OwnerID == 0) return;
             doorManipulators.Add(doorManipulator);
         }
 
         private void OnEntityKill(BaseCombatEntity baseCombatEntity)
         {
-            if (baseCombatEntity == null || baseCombatEntity.OwnerID == 0 || baseCombatEntity.net == null) return;
+            if (baseCombatEntity == null || baseCombatEntity.net == null) return;
             if (baseCombatEntity is DoorManipulator)
             {
                 var doorManipulator = baseCombatEntity as DoorManipulator;
                 doorManipulators.RemoveWhere(x => x == doorManipulator);
+                return;
             }
-            else if (baseCombatEntity is Door)
+            if (baseCombatEntity is Door)
             {
                 var doorID = (baseCombatEntity as Door).net.ID;
+                if (doorTimer.ContainsKey(doorID))
+                {
+                    doorTimer[doorID]?.Destroy();
+                    doorTimer.Remove(doorID);
+                }
                 foreach (var entry in storedData.playerData)
+                {
                     if (entry.Value.theDoorSettings.ContainsKey(doorID))
                         entry.Value.theDoorSettings.Remove(doorID);
+                }
             }
         }
 
         private void OnServerSave() => timer.Once(UnityEngine.Random.Range(0f, 60f), () => SaveData());
 
-        private void Unload() => SaveData();
+        private void Unload()
+        {
+            foreach (var entry in doorTimer)
+                entry.Value?.Destroy();
+            SaveData();
+        }
 
         private void OnDoorOpened(Door door, BasePlayer player)
         {
-            if (door == null || door.net == null || !door.IsOpen() || door.OwnerID == 0) return;
+            if (door == null || door.net == null || !door.IsOpen()) return;
             if (!deployedToName.ContainsKey(door.ShortPrefabName)) return;
-            if (configData.usePermissions && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE)) return;
-            if (configData.globalSettings.excludeDoorController && HaveDoorController(door)) return;
+            if (!configData.globalS.useUnownedDoor && door.OwnerID == 0) return;
+            if (configData.usePermission && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE)) return;
+            if (configData.globalS.excludeDoorController && HasDoorController(door)) return;
 
-            float autoCloseTime = 0;
             CreatePlayerData(player.userID);
             var playerDataEntry = storedData.playerData[player.userID];
             if (!playerDataEntry.enabled) return;
-            if (playerDataEntry.theDoorSettings.ContainsKey(door.net.ID))
+            float autoCloseTime = 0;
+            var doorID = door.net.ID;
+            if (playerDataEntry.theDoorSettings.ContainsKey(doorID))
             {
-                if (!playerDataEntry.theDoorSettings[door.net.ID].enabled) return;
-                autoCloseTime = playerDataEntry.theDoorSettings[door.net.ID].time;
+                if (!playerDataEntry.theDoorSettings[doorID].enabled) return;
+                autoCloseTime = playerDataEntry.theDoorSettings[doorID].time;
             }
             else if (playerDataEntry.doorTypeSettings.ContainsKey(door.ShortPrefabName))
             {
@@ -100,17 +119,30 @@ namespace Oxide.Plugins
             else autoCloseTime = playerDataEntry.time;
 
             if (autoCloseTime <= 0) return;
-            if (Interface.CallHook("CanAutoDoorClose", player, door) != null) return;
-            timer.Once(autoCloseTime, () =>
+            if (Interface.CallHook("CanDoorAutoClose", player, door) != null) return;
+
+            if (doorTimer.ContainsKey(doorID)) doorTimer[doorID]?.Destroy();
+            doorTimer[doorID] = timer.Once(autoCloseTime, () =>
             {
+                doorTimer.Remove(doorID);
                 if (door == null || !door.IsOpen()) return;
-                if (configData.globalSettings.cancelOnKill && player.IsDead()) return;
+                if (configData.globalS.cancelOnKill && player != null && player.IsDead()) return;
                 door.SetFlag(BaseEntity.Flags.Open, false);
                 door.SendNetworkUpdateImmediate();
             });
         }
 
-        private bool HaveDoorController(Door door)
+        private void OnDoorClosed(Door door, BasePlayer player)
+        {
+            if (door == null || door.net == null || door.IsOpen()) return;
+            if (doorTimer.ContainsKey(door.net.ID))
+            {
+                doorTimer[door.net.ID]?.Destroy();
+                doorTimer.Remove(door.net.ID);
+            }
+        }
+
+        private bool HasDoorController(Door door)
         {
             foreach (var doorManipulator in doorManipulators)
                 if (doorManipulator != null && doorManipulator.targetDoor == door)
@@ -123,21 +155,16 @@ namespace Oxide.Plugins
             if (storedData.playerData.ContainsKey(playerID)) return;
             storedData.playerData.Add(playerID, new StoredData.PlayerDataEntry
             {
-                enabled = configData.globalSettings.defaultEnabled,
-                time = configData.globalSettings.defaultDelay,
+                enabled = configData.globalS.defaultEnabled,
+                time = configData.globalS.defaultDelay,
             });
         }
 
         private Door GetLookingDoor(BasePlayer player)
         {
             RaycastHit raycastHit;
-            if (Physics.Raycast(player.eyes.HeadRay(), out raycastHit))
-                if (raycastHit.GetEntity() is Door)
-                {
-                    var door = raycastHit.GetEntity() as Door;
-                    if (door.OwnerID != 0 && deployedToName.ContainsKey(door.ShortPrefabName))
-                        return door;
-                }
+            if (Physics.Raycast(player.eyes.HeadRay(), out raycastHit, 10f, Rust.Layers.Solid) && raycastHit.GetEntity() is Door)
+                return raycastHit.GetEntity() as Door;
             return null;
         }
 
@@ -145,7 +172,7 @@ namespace Oxide.Plugins
 
         private void CmdAutoDoor(BasePlayer player, string command, string[] args)
         {
-            if (configData.usePermissions && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE))
+            if (configData.usePermission && !permission.UserHasPermission(player.UserIDString, PERMISSION_USE))
             {
                 Print(player, Lang("NotAllowed", player.UserIDString));
                 return;
@@ -154,110 +181,129 @@ namespace Oxide.Plugins
             if (args == null || args.Length == 0)
             {
                 storedData.playerData[player.userID].enabled = !storedData.playerData[player.userID].enabled;
-                if (storedData.playerData[player.userID].enabled) Print(player, Lang("AutoDoor", player.UserIDString, Lang("Enabled", player.UserIDString)));
-                else Print(player, Lang("AutoDoor", player.UserIDString, Lang("Disabled", player.UserIDString)));
+                Print(player, Lang("AutoDoor", player.UserIDString, storedData.playerData[player.userID].enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
                 return;
             }
             float time = 0;
             if (float.TryParse(args[0], out time))
             {
-                if (time <= configData.globalSettings.maximumDelay && time >= configData.globalSettings.minimumDelay)
+                if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                 {
                     storedData.playerData[player.userID].time = time;
-                    foreach (var key in storedData.playerData[player.userID].doorTypeSettings.Keys)
-                        storedData.playerData[player.userID].doorTypeSettings[key].time = time;
-                    foreach (var key in storedData.playerData[player.userID].theDoorSettings.Keys)
-                        storedData.playerData[player.userID].theDoorSettings[key].time = time;
                     if (!storedData.playerData[player.userID].enabled) storedData.playerData[player.userID].enabled = true;
                     Print(player, Lang("AutoDoorDelay", player.UserIDString, time));
+                    return;
                 }
-                else Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
+                Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
                 return;
             }
             switch (args[0].ToLower())
             {
+                case "a":
+                case "all":
+                    if (args.Length > 1)
+                    {
+                        if (float.TryParse(args[1], out time))
+                        {
+                            if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
+                            {
+                                storedData.playerData[player.userID].time = time;
+                                storedData.playerData[player.userID].doorTypeSettings.Clear();
+                                storedData.playerData[player.userID].theDoorSettings.Clear();
+                                Print(player, Lang("AutoDoorDelayAll", player.UserIDString, time));
+                                return;
+                            }
+                            Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                            return;
+                        }
+                    }
+                    break;
+
                 case "s":
                 case "single":
                     var door = GetLookingDoor(player);
-                    if (door?.net == null)
+                    if (door == null || door.net == null)
                     {
-                        Print(player, Lang("DoorNoFound", player.UserIDString));
+                        Print(player, Lang("DoorNotFound", player.UserIDString));
+                        return;
+                    }
+                    if (!deployedToName.ContainsKey(door.ShortPrefabName))
+                    {
+                        Print(player, Lang("DoorNotSupported", player.UserIDString));
                         return;
                     }
                     if (!storedData.playerData[player.userID].theDoorSettings.ContainsKey(door.net.ID))
-                        storedData.playerData[player.userID].theDoorSettings.Add(door.net.ID, new StoredData.DoorSettings { enabled = true, time = configData.globalSettings.defaultDelay });
+                        storedData.playerData[player.userID].theDoorSettings.Add(door.net.ID, new StoredData.DoorSettings { enabled = true, time = configData.globalS.defaultDelay });
 
                     if (args.Length <= 1)
                     {
                         storedData.playerData[player.userID].theDoorSettings[door.net.ID].enabled = !storedData.playerData[player.userID].theDoorSettings[door.net.ID].enabled;
-                        if (storedData.playerData[player.userID].theDoorSettings[door.net.ID].enabled) Print(player, Lang("AutoDoorSingle", player.UserIDString, deployedToName[door.ShortPrefabName], Lang("Enabled", player.UserIDString)));
-                        else Print(player, Lang("AutoDoorSingle", player.UserIDString, deployedToName[door.ShortPrefabName], Lang("Disabled", player.UserIDString)));
+                        Print(player, Lang("AutoDoorSingle", player.UserIDString, deployedToName[door.ShortPrefabName], storedData.playerData[player.userID].theDoorSettings[door.net.ID].enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
                         return;
                     }
-                    else
+                    if (float.TryParse(args[1], out time))
                     {
-                        float time1 = 0;
-                        if (float.TryParse(args[1], out time1))
+                        if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                         {
-                            if (time1 <= configData.globalSettings.maximumDelay && time1 >= configData.globalSettings.minimumDelay)
-                            {
-                                storedData.playerData[player.userID].theDoorSettings[door.net.ID].time = time1;
-                                Print(player, Lang("AutoDoorSingleDelay", player.UserIDString, deployedToName[door.ShortPrefabName], time1));
-                            }
-                            else Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
+                            storedData.playerData[player.userID].theDoorSettings[door.net.ID].time = time;
+                            Print(player, Lang("AutoDoorSingleDelay", player.UserIDString, deployedToName[door.ShortPrefabName], time));
                             return;
                         }
+                        Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                        return;
                     }
                     break;
 
                 case "t":
                 case "type":
                     var door1 = GetLookingDoor(player);
-                    if (door1?.net == null)
+                    if (door1 == null || door1.net == null)
                     {
                         Print(player, Lang("DoorNoFound", player.UserIDString));
                         return;
                     }
+                    if (!deployedToName.ContainsKey(door1.ShortPrefabName))
+                    {
+                        Print(player, Lang("DoorNotSupported", player.UserIDString));
+                        return;
+                    }
                     if (!storedData.playerData[player.userID].doorTypeSettings.ContainsKey(door1.ShortPrefabName))
-                        storedData.playerData[player.userID].doorTypeSettings.Add(door1.ShortPrefabName, new StoredData.DoorSettings { enabled = true, time = configData.globalSettings.defaultDelay });
+                        storedData.playerData[player.userID].doorTypeSettings.Add(door1.ShortPrefabName, new StoredData.DoorSettings { enabled = true, time = configData.globalS.defaultDelay });
 
                     if (args.Length <= 1)
                     {
                         storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].enabled = !storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].enabled;
-
-                        if (storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].enabled) Print(player, Lang("AutoDoorType", player.UserIDString, deployedToName[door1.ShortPrefabName], Lang("Enabled", player.UserIDString)));
-                        else Print(player, Lang("AutoDoorType", player.UserIDString, deployedToName[door1.ShortPrefabName], Lang("Disabled", player.UserIDString)));
+                        Print(player, Lang("AutoDoorType", player.UserIDString, deployedToName[door1.ShortPrefabName], storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].enabled ? Lang("Enabled", player.UserIDString) : Lang("Disabled", player.UserIDString)));
                         return;
                     }
-                    else
+                    if (float.TryParse(args[1], out time))
                     {
-                        float time1 = 0;
-                        if (float.TryParse(args[1], out time1))
+                        if (time <= configData.globalS.maximumDelay && time >= configData.globalS.minimumDelay)
                         {
-                            if (time1 <= configData.globalSettings.maximumDelay && time1 >= configData.globalSettings.minimumDelay)
-                            {
-                                storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].time = time1;
-                                Print(player, Lang("AutoDoorTypeDelay", player.UserIDString, deployedToName[door1.ShortPrefabName], time1));
-                            }
-                            else Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
+                            storedData.playerData[player.userID].doorTypeSettings[door1.ShortPrefabName].time = time;
+                            Print(player, Lang("AutoDoorTypeDelay", player.UserIDString, deployedToName[door1.ShortPrefabName], time));
                             return;
                         }
+                        Print(player, Lang("AutoDoorDelayLimit", player.UserIDString, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                        return;
                     }
                     break;
 
                 case "h":
                 case "help":
                     StringBuilder stringBuilder = new StringBuilder();
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, configData.chatSettings.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax1", player.UserIDString, configData.chatSettings.command, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax2", player.UserIDString, configData.chatSettings.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax3", player.UserIDString, configData.chatSettings.command, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax4", player.UserIDString, configData.chatSettings.command));
-                    stringBuilder.AppendLine(Lang("AutoDoorSyntax5", player.UserIDString, configData.chatSettings.command, configData.globalSettings.minimumDelay, configData.globalSettings.maximumDelay));
-                    Print(player, $"\n{stringBuilder.ToString()}");
+                    stringBuilder.AppendLine();
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax", player.UserIDString, configData.chatS.command));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax1", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax2", player.UserIDString, configData.chatS.command));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax3", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax4", player.UserIDString, configData.chatS.command));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax5", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    stringBuilder.AppendLine(Lang("AutoDoorSyntax6", player.UserIDString, configData.chatS.command, configData.globalS.minimumDelay, configData.globalS.maximumDelay));
+                    Print(player, stringBuilder.ToString());
                     return;
             }
-            Print(player, Lang("SyntaxError", player.UserIDString, configData.chatSettings.command));
+            Print(player, Lang("SyntaxError", player.UserIDString, configData.chatS.command));
         }
 
         #endregion ChatCommand
@@ -269,19 +315,22 @@ namespace Oxide.Plugins
         private class ConfigData
         {
             [JsonProperty(PropertyName = "Use permissions")]
-            public bool usePermissions = false;
+            public bool usePermission = false;
 
             [JsonProperty(PropertyName = "Global settings")]
-            public GlobalSettings globalSettings = new GlobalSettings();
+            public GlobalSettings globalS = new GlobalSettings();
 
             [JsonProperty(PropertyName = "Chat settings")]
-            public ChatSettings chatSettings = new ChatSettings();
+            public ChatSettings chatS = new ChatSettings();
 
             [JsonProperty(PropertyName = "Door display names")]
             public Dictionary<string, string> doorDisplayNames = new Dictionary<string, string>();
 
             public class GlobalSettings
             {
+                [JsonProperty(PropertyName = "Allows automatic closing of unowned doors")]
+                public bool useUnownedDoor = false;
+
                 [JsonProperty(PropertyName = "Exclude door controller")]
                 public bool excludeDoorController = true;
 
@@ -406,21 +455,24 @@ namespace Oxide.Plugins
                 ["Enabled"] = "<color=#8ee700>Enabled</color>",
                 ["Disabled"] = "<color=#ce422b>Disabled</color>",
                 ["AutoDoor"] = "Automatic door closing is now {0}",
-                ["AutoDoorDelay"] = "Automatic door closing delay set to {0}s",
-                ["DoorNoFound"] = "Please looking at the door or not support the door",
-                ["AutoDoorDelayLimit"] = "Automatic door closing delay is between {0}s and {1}s",
-                ["AutoDoorSingle"] = "Automatic closing of the {0} is {1}",
-                ["AutoDoorSingleDelay"] = "Automatic closing delay of the {0} is {1}s",
+                ["AutoDoorDelay"] = "Automatic door closing delay set to {0}s. (Doors set by 'single' and 'type' are not included)",
+                ["AutoDoorDelayAll"] = "Automatic closing delay of all doors set to {0}s",
+                ["DoorNotFound"] = "You need to look at a door",
+                ["DoorNotSupported"] = "This type of door is not supported",
+                ["AutoDoorDelayLimit"] = "Automatic door closing delay allowed is between {0}s and {1}s",
+                ["AutoDoorSingle"] = "Automatic closing of this {0} is {1}",
+                ["AutoDoorSingleDelay"] = "Automatic closing delay of this {0} is {1}s",
                 ["AutoDoorType"] = "Automatic closing of {0} door is {1}",
                 ["AutoDoorTypeDelay"] = "Automatic closing delay of {0} door is {1}s",
-                ["SyntaxError"] = "Syntax error, please enter '<color=#ce422b>/{0} <help | h></color>' to view help",
+                ["SyntaxError"] = "Syntax error, type '<color=#ce422b>/{0} <help | h></color>' to view help",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - Enable/Disable automatic door closing",
-                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <time (seconds)></color> - Set automatic closing delay for all doors, (The time is between {1} and {2})",
+                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <time (seconds)></color> - Set automatic closing delay for doors, the allowed time is between {1}s and {2}s. (Doors set by 'single' and 'type' are not included)",
                 ["AutoDoorSyntax2"] = "<color=#ce422b>/{0} <single | s></color> - Enable/Disable automatic closing of the door you are looking at",
-                ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <time (seconds)></color> - Set automatic closing delay for the door you are looking at, (The time is between {1} and {2})",
-                ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - Enable/disable automatic door closing for the type of door you are looking at.'type' is just a word, not the type of door",
-                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <time (seconds)></color> - Set automatic closing delay for the type of door you are looking at, (The time is between {1} and {2}).'type' is just a word, not the type of door",
+                ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <time (seconds)></color> - Set automatic closing delay for the door you are looking at, the allowed time is between {1}s and {2}s",
+                ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - Enable/disable automatic door closing for the type of door you are looking at. ('type' is just a word, not the type of door)",
+                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <time (seconds)></color> - Set automatic closing delay for the type of door you are looking at, the allowed time is between {1}s and {2}s. ('type' is just a word, not the type of door)",
+                ["AutoDoorSyntax6"] = "<color=#ce422b>/{0} <all | a> <time (seconds)></color> - Set automatic closing delay for all doors, the allowed time is between {1}s and {2}s.",
             }, this);
             lang.RegisterMessages(new Dictionary<string, string>
             {
@@ -428,27 +480,30 @@ namespace Oxide.Plugins
                 ["Enabled"] = "<color=#8ee700>已启用</color>",
                 ["Disabled"] = "<color=#ce422b>已禁用</color>",
                 ["AutoDoor"] = "自动关门现在的状态为 {0}",
-                ["AutoDoorDelay"] = "自动关门延迟现在设置为 {0}s",
-                ["DoorNoFound"] = "请看着门/不支持这种门",
-                ["AutoDoorDelayLimit"] = "自动关门延迟应该在 {0}s 和 {1}s 之间",
-                ["AutoDoorSingle"] = "这个 {0} 的自动关门状态为 {1}",
-                ["AutoDoorSingleDelay"] = "这个 {0} 的自动关门延迟为 {1}s",
-                ["AutoDoorType"] = "{0} 的自动关门状态为 {1}",
-                ["AutoDoorTypeDelay"] = "{0} 的自动关门延迟为 {1}s",
+                ["AutoDoorDelay"] = "自动关门延迟设置为 {0}秒",
+                ["AutoDoorDelayAll"] = "全部门的自动关闭延迟设置为 {0}秒",
+                ["DoorNotFound"] = "请您看着一条门再输入指令",
+                ["DoorNotSupported"] = "不支持您看着的这种门",
+                ["AutoDoorDelayLimit"] = "自动关门延迟应该在 {0}秒 和 {1}秒 之间",
+                ["AutoDoorSingle"] = "这条 {0} 的自动关闭状态为 {1}",
+                ["AutoDoorSingleDelay"] = "这条 {0} 的自动关闭延迟为 {1}秒",
+                ["AutoDoorType"] = "这种 {0} 的自动关闭状态为 {1}",
+                ["AutoDoorTypeDelay"] = "这种 {0} 的自动关闭延迟为 {1}秒",
                 ["SyntaxError"] = "语法错误, 输入 '<color=#ce422b>/{0} <help | h></color>' 查看帮助",
 
                 ["AutoDoorSyntax"] = "<color=#ce422b>/{0} </color> - 启用/禁用自动关门",
-                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <时间 (秒)></color> - 为所有门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
-                ["AutoDoorSyntax2"] = "<color=#ce422b>/{0} <single | s></color> - 为您看着的这个门，启用/禁用自动关门",
-                ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <时间 (秒)></color> - 为您看着的这个门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
+                ["AutoDoorSyntax1"] = "<color=#ce422b>/{0} <时间 (秒)></color> - 设置自动关门延迟。(时间在 {1}秒 和 {2}秒 之间) (不包括'single'和'type'设置的门)",
+                ["AutoDoorSyntax2"] = "<color=#ce422b>/{0} <single | s></color> - 为您看着的这条门，启用/禁用自动关门",
+                ["AutoDoorSyntax3"] = "<color=#ce422b>/{0} <single | s> <时间 (秒)></color> - 为您看着的这条门设置自动关闭延迟。(时间在 {1}秒 和 {2}秒 之间)",
                 ["AutoDoorSyntax4"] = "<color=#ce422b>/{0} <type | t></color> - 为您看着的这种门，启用/禁用自动关门",
-                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <时间 (秒)></color> - 为您看着的这种门设置自动关门延迟，(时间在 {1} 和 {2} 之间)",
+                ["AutoDoorSyntax5"] = "<color=#ce422b>/{0} <type | t> <时间 (秒)></color> - 为您看着的这种门设置自动关闭延迟。(时间在 {1}秒 和 {2}秒 之间)",
+                ["AutoDoorSyntax6"] = "<color=#ce422b>/{0} <all | a> <time (seconds)></color> - 为所有门设置自动关闭延迟。(时间在 {1}秒 和 {2}秒 之间)",
             }, this, "zh-CN");
         }
 
         private string Lang(string key, string id = null, params object[] args) => string.Format(lang.GetMessage(key, this, id), args);
 
-        private void Print(BasePlayer player, string message) => Player.Message(player, message, $"<color={configData.chatSettings.prefixColor}>{configData.chatSettings.prefix}</color>", configData.chatSettings.steamIDIcon);
+        private void Print(BasePlayer player, string message) => Player.Message(player, message, $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
 
         #endregion LanguageFile
     }
