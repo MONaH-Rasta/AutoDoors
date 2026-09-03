@@ -1,9 +1,10 @@
 #Files
 *.csproj
-*.sln
+*.sln*
 
 #Folders
 /obj
 /bin
 /.vscode
+/.idea
 /.tmp

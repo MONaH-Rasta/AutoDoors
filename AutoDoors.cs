@@ -132,7 +132,7 @@ namespace Oxide.Plugins
                 doorTimers.Remove(doorID);
                 if (door == null || !door.IsOpen()) return;
                 if (configData.globalS.cancelOnKill && player != null && player.IsDead()) return;
-                door.SetFlag(BaseEntity.Flags.Open, false);
+                door.SetFlagLocal(BaseEntity.Flags.Open, false);
                 door.SendNetworkUpdateImmediate();
             });
         }
